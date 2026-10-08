@@ -1,0 +1,8 @@
+{
+  "dependencies": [
+    "."
+  ],
+  "graphs": {
+    "reseva": "./agent/deployment.py:graph"
+  }
+}
