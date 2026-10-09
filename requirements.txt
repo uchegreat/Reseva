@@ -70,3 +70,6 @@ uvicorn==0.53.0
 websockets==16.1.1
 xxhash==4.0.1
 zstandard==0.25.0
+fastapi==0.143.0
+langgraph-checkpoint-postgres==3.1.2
+pytest-asyncio==1.4.0
