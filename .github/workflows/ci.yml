@@ -17,6 +17,9 @@ jobs:
     services:
       postgres:
         image: postgres:16
+        credentials:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -28,12 +31,14 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+
     env:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/reseva
       # Add ANTHROPIC_API_KEY as a GitHub Actions secret if the test suite
       # invokes the live Anthropic API. Prefer mocked LLM calls for CI.
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       LANGSMITH_TRACING: "false"
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -60,6 +65,7 @@ jobs:
     defaults:
       run:
         working-directory: frontend
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
