@@ -18,8 +18,6 @@ if not DATABASE_URL:
 engine = create_engine(
     DATABASE_URL,
     echo=False,
-    pool_pre_ping=True,
-    pool_recycle=300,
 )
 
 

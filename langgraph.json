@@ -4,6 +4,5 @@
   ],
   "graphs": {
     "reseva": "./agent/deployment.py:graph"
-  },
-  "env": ".env"
+  }
 }
