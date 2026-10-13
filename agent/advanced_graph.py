@@ -147,9 +147,9 @@ def load_long_term_memory(state: AdvancedResevaState):
     """
     Load the user's long-term preferences from PostgreSQL.
 
-    Preserve the original user request across graph resumes.
-    Once original_user_request exists in state, do not overwrite it
-    with later human messages created during an interrupt/resume cycle.
+    Use the latest human message as the current user request.
+    This allows the advanced graph to continue when the user
+    provides missing information in a follow-up message.
     """
 
     user_id = state.get("user_id") or "studio-user"
@@ -158,38 +158,38 @@ def load_long_term_memory(state: AdvancedResevaState):
     # Show which user ID LangGraph Studio is actually providing.
     print("DEBUG MEMORY user_id:", repr(user_id))
 
-    # IMPORTANT:
-    # Preserve the original request if it has already been captured.
-    # This prevents approval/resume messages from replacing the
-    # user's actual restaurant request.
-    original_user_request = state.get("original_user_request")
+    messages = state.get("messages", [])
 
-    if not original_user_request:
-        messages = state.get("messages", [])
+    latest_user_request = None
 
-        for message in messages:
-            if getattr(message, "type", None) == "human":
-                content = getattr(message, "content", None)
+    # Find the latest actual human message.
+    for message in reversed(messages):
+        if getattr(message, "type", None) != "human":
+            continue
 
-                if isinstance(content, str) and content.strip():
-                    original_user_request = content
-                    break
+        content = getattr(message, "content", None)
 
-                if isinstance(content, list):
-                    text_parts = []
+        if isinstance(content, str) and content.strip():
+            latest_user_request = content
+            break
 
-                    for item in content:
-                        if isinstance(item, str):
-                            text_parts.append(item)
+        if isinstance(content, list):
+            text_parts = []
 
-                        elif isinstance(item, dict):
-                            text = item.get("text")
-                            if isinstance(text, str):
-                                text_parts.append(text)
+            for item in content:
+                if isinstance(item, str):
+                    text_parts.append(item)
 
-                    if text_parts:
-                        original_user_request = " ".join(text_parts)
-                        break
+                elif isinstance(item, dict):
+                    text = item.get("text")
+                    if isinstance(text, str):
+                        text_parts.append(text)
+
+            if text_parts:
+                latest_user_request = " ".join(text_parts)
+                break
+
+    original_user_request = latest_user_request
 
     if not user_id:
         return {
@@ -686,6 +686,11 @@ Return a structured evaluation.
     evaluation = llm.with_structured_output(
         ExecutionEvaluation
     ).invoke(prompt)
+    print("\nDEBUG EVALUATION:")
+    print("goal_satisfied =", evaluation.goal_satisfied)
+    print("adaptation_needed =", evaluation.adaptation_needed)
+    print("next_action =", evaluation.next_action)
+    print("execution_summary =", evaluation.execution_summary)
 
     return {
         "execution_summary": evaluation.execution_summary,
@@ -807,8 +812,6 @@ def route_after_evaluation(
 
     task_status = state.get("task_status")
 
-    # The user must provide the next piece of information or
-    # make a decision. Do not repeatedly execute the same plan.
     waiting_statuses = {
         "awaiting_user_input",
         "missing_restaurant",
@@ -822,7 +825,16 @@ def route_after_evaluation(
         "modification_missing_details",
     }
 
+    # The core agent is waiting for the user to provide
+    # information identified by the planning layer.
+    missing_information = state.get(
+        "missing_information"
+    ) or []
+
     if task_status in waiting_statuses:
+        return "save_memory"
+
+    if missing_information:
         return "save_memory"
 
     adaptation_count = state.get(

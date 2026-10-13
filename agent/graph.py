@@ -2119,13 +2119,19 @@ def route_after_agent(state: ResevaState):
         return "modification_lookup"
 
     # ---------------------------------------------------------
-    # 4. Recovery
+    # 4. Wait for user to choose an alternative time
+    # ---------------------------------------------------------
+    if state.get("task_status") == "alternatives_found":
+        return END
+
+    # ---------------------------------------------------------
+    # 5. Recovery
     # ---------------------------------------------------------
     if state.get("task_status") == "recovery_needed":
         return "alternative_times"
 
     # ---------------------------------------------------------
-    # 5. Booking approval
+    # 6. Booking approval
     # ---------------------------------------------------------
     #
     # NEVER approve a booking merely because the user requested
@@ -2181,7 +2187,7 @@ def route_after_agent(state: ResevaState):
             return "alternative_times"
 
     # ---------------------------------------------------------
-    # 6. Otherwise wait for the next user message
+    # 7. Otherwise wait for the next user message
     # ---------------------------------------------------------
     return END
 
