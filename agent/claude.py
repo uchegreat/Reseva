@@ -7,8 +7,10 @@ from agent.mcp_client import (
     search_restaurants,
     check_availability,
     get_alternative_times,
+    get_reservation,
+    modify_reservation,
+    cancel_reservation,
 )
-
 
 load_dotenv()
 
@@ -17,19 +19,19 @@ api_key = os.getenv("ANTHROPIC_API_KEY")
 if not api_key:
     raise ValueError("ANTHROPIC_API_KEY is not set in the .env file.")
 
-
 llm = ChatAnthropic(
     model="claude-sonnet-4-5",
     temperature=0,
     max_tokens=1024,
 )
 
-
 tools = [
     search_restaurants,
     check_availability,
     get_alternative_times,
+    get_reservation,
+    modify_reservation,
+    cancel_reservation,
 ]
-
 
 llm_with_tools = llm.bind_tools(tools)

@@ -5,3 +5,8 @@ __pycache__/
 .pytest_cache/
 .vscode/
 .langgraph_api/
+.env.production
+
+*.backup
+*.local-backup
+*.before_reset

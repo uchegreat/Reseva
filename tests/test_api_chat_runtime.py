@@ -9,9 +9,8 @@ from api.graph_runtime import ResevaGraphRuntime
 
 
 if __name__ != "__main__":
-    asyncio.set_event_loop_policy(
-        asyncio.WindowsSelectorEventLoopPolicy()
-    )
+    if hasattr(asyncio, "WindowsSelectorEventLoopPolicy"):
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 
 @pytest.mark.anyio

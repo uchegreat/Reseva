@@ -17,7 +17,7 @@ class ChatResponse(BaseModel):
 
 
 class ResumeRequest(BaseModel):
-    approval: str = Field(..., min_length=1)
+    approval: bool | str
 
 
 class ReservationResponse(BaseModel):

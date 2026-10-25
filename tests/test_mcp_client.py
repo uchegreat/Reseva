@@ -5,9 +5,11 @@ from agent.mcp_client import search_restaurants
 
 async def main():
 
-    restaurants = await search_restaurants(
-        location="Mayfair",
-        cuisine="Italian",
+    restaurants = await search_restaurants.ainvoke(
+        {
+            "location": "Mayfair",
+            "cuisine": "Italian",
+        }
     )
 
     print("\nRestaurants found:")

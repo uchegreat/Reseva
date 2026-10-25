@@ -1,8 +1,10 @@
-{
-  "dependencies": [
-    "."
-  ],
-  "graphs": {
-    "reseva": "./agent/deployment.py:graph"
-  }
-}
+   {
+     "dependencies": ["."],
+     "graphs": {
+       "reseva": "./agent/deployment.py:graph"
+     },
+     "env": ".env.production",
+     "http": {
+       "app": "./api/main.py:app"
+     }
+   }

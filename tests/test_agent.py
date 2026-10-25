@@ -6,9 +6,8 @@ from tests.postgres_graph import PostgresGraphContext
 
 
 # Psycopg async connections do not work with the Windows ProactorEventLoop.
-asyncio.set_event_loop_policy(
-    asyncio.WindowsSelectorEventLoopPolicy()
-)
+if hasattr(asyncio, "WindowsSelectorEventLoopPolicy"):
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 
 config = {

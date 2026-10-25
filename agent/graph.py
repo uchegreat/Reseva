@@ -59,6 +59,14 @@ def _get_customer_email(state: ResevaState) -> str | None:
 def _valid_email(value: object) -> bool:
     return isinstance(value, str) and re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", value.strip()) is not None
 
+def _is_approved(value) -> bool:
+    """True for a boolean approval (React app) or a yes-style string (Studio)."""
+    if value is True:
+        return True
+    if isinstance(value, str):
+        return value.strip().lower() in {"yes", "y", "true", "approve", "approved"}
+    return False
+
 def _store_customer_email(state: ResevaState, email: str) -> dict:
     lookup = dict(state.get("reservation_lookup") or {})
     lookup["customer_email"] = email
@@ -1124,7 +1132,7 @@ def modification_approval(state: ResevaState):
         ),
     })
 
-    if isinstance(approval, str) and approval.lower() == "yes":
+    if _is_approved(approval):
         return {"task_status": "modification_approved"}
 
     return {
@@ -1356,13 +1364,20 @@ def modification_confirmation_message(state: ResevaState):
     time = state.get("time")
     party_size = state.get("party_size")
 
+    email_line = (
+        "Modification email sent."
+        if state.get("email_status") == "sent"
+        else "The reservation was modified, but the modification email could not be sent."
+    )
+
     message = (
         "Your reservation has been successfully modified!\n\n"
         f"Restaurant: {restaurant_name}\n"
         f"Date: {date}\n"
         f"Time: {time}\n"
         f"Party size: {party_size}\n"
-        f"Reservation ID: {reservation_id}"
+        f"Reservation ID: {reservation_id}\n"
+        f"{email_line}"
     )
 
     return {
@@ -1465,7 +1480,7 @@ def cancellation_approval(state: ResevaState):
         ),
     })
 
-    if isinstance(approval, str) and approval.lower() == "yes":
+    if _is_approved(approval):
         return {
             "task_status": "cancellation_approved",
     }
@@ -1568,21 +1583,13 @@ async def send_cancellation_confirmation_email(state: ResevaState):
 def cancellation_confirmation_message(state: ResevaState):
     """Create the final user-facing cancellation confirmation."""
 
-    restaurant_names = {
-        "rest-001": "Bella Italia Mayfair",
-        "rest-002": "La Tavola",
-    }
+    reservation = state.get("reservation_lookup") or {}
 
-    restaurant_id = state.get("selected_restaurant_id")
-    restaurant_name = restaurant_names.get(
-        restaurant_id,
-        "the selected restaurant",
-    )
-
-    reservation_id = state.get("reservation_id")
-    date = state.get("date")
-    time = state.get("time")
-    party_size = state.get("party_size")
+    restaurant_name = reservation.get("restaurant_name") or "the restaurant"
+    reservation_id = reservation.get("reservation_id") or state.get("reservation_id")
+    date = reservation.get("date") or state.get("date")
+    time = reservation.get("time") or state.get("time")
+    party_size = reservation.get("party_size") or state.get("party_size")
 
     email_line = (
         "Cancellation email sent."
@@ -1649,10 +1656,8 @@ def booking_approval(state: ResevaState):
         ),
     })
 
-    if (
-        isinstance(approval, str)
-        and approval.lower() == "yes"
-    ):
+    if _is_approved(approval):
+    
         return {
             "task_status": "booking_approved",
         }
@@ -2119,19 +2124,13 @@ def route_after_agent(state: ResevaState):
         return "modification_lookup"
 
     # ---------------------------------------------------------
-    # 4. Wait for user to choose an alternative time
-    # ---------------------------------------------------------
-    if state.get("task_status") == "alternatives_found":
-        return END
-
-    # ---------------------------------------------------------
-    # 5. Recovery
+    # 4. Recovery
     # ---------------------------------------------------------
     if state.get("task_status") == "recovery_needed":
         return "alternative_times"
 
     # ---------------------------------------------------------
-    # 6. Booking approval
+    # 5. Booking approval
     # ---------------------------------------------------------
     #
     # NEVER approve a booking merely because the user requested
@@ -2187,7 +2186,7 @@ def route_after_agent(state: ResevaState):
             return "alternative_times"
 
     # ---------------------------------------------------------
-    # 7. Otherwise wait for the next user message
+    # 6. Otherwise wait for the next user message
     # ---------------------------------------------------------
     return END
 

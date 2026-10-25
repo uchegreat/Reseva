@@ -1,36 +1,26 @@
+"""
+Reseva MCP client (in-process).
+
+The restaurant MCP server lives in the same codebase as the agent, so
+the client talks to it through an in-memory transport instead of
+spawning `python -m mcp_servers.restaurant_server` as a child process.
+
+Why: a child process does not inherit the import path or working
+directory that the LangGraph platform sets up for the agent, so on the
+hosted deployment the server could exit before the MCP handshake and
+raise `MCPError: Connection closed`. In-process there is nothing to
+spawn, so that failure mode is gone.
+
+All tool names and signatures are unchanged, so agent/graph.py,
+agent/claude.py, integrations/mock.py and the tests need no edits.
+"""
+
 import json
-from contextlib import asynccontextmanager
 
 from langchain_core.tools import tool
-from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import stdio_client
+from mcp import Client
 
-
-# ---------------------------------------------------------
-# MCP SERVER CONFIGURATION
-# ---------------------------------------------------------
-
-server_params = StdioServerParameters(
-    command="python",
-    args=["-m", "mcp_servers.restaurant_server"],
-)
-
-
-# ---------------------------------------------------------
-# MCP CONNECTION
-# ---------------------------------------------------------
-
-@asynccontextmanager
-async def get_mcp_session():
-    """
-    Start the restaurant MCP server as a subprocess and
-    create an MCP client session over stdio.
-    """
-
-    async with stdio_client(server_params) as (read, write):
-        async with ClientSession(read, write) as session:
-            await session.initialize()
-            yield session
+from mcp_servers.restaurant_server import mcp
 
 
 # ---------------------------------------------------------
@@ -39,14 +29,24 @@ async def get_mcp_session():
 
 def extract_result(result):
     """
-    Extract structured MCP tool results.
+    Extract a plain Python value from an MCP tool result.
+
+    Handles both shapes the SDK can return:
+    - wrapped:   {"result": <value>}   (e.g. tools returning a list)
+    - unwrapped: {<fields>}            (e.g. tools returning a dict)
     """
 
-    if result.structured_content:
-        return result.structured_content.get("result")
+    structured = getattr(result, "structured_content", None)
 
-    if result.content:
-        first_content = result.content[0]
+    if structured:
+        if isinstance(structured, dict) and set(structured) == {"result"}:
+            return structured["result"]
+        return structured
+
+    content = getattr(result, "content", None)
+
+    if content:
+        first_content = content[0]
 
         if hasattr(first_content, "text"):
             try:
@@ -55,6 +55,18 @@ def extract_result(result):
                 return first_content.text
 
     return None
+
+
+# ---------------------------------------------------------
+# SHARED CALL HELPER
+# ---------------------------------------------------------
+
+async def _call_tool(name: str, arguments: dict):
+    """Call a tool on the in-process Reseva MCP server."""
+
+    async with Client(mcp) as client:
+        result = await client.call_tool(name, arguments)
+        return extract_result(result)
 
 
 # ---------------------------------------------------------
@@ -71,17 +83,13 @@ async def search_restaurants(
     optional cuisine.
     """
 
-    async with get_mcp_session() as session:
-
-        result = await session.call_tool(
-            "search_restaurants",
-            {
-                "location": location,
-                "cuisine": cuisine,
-            },
-        )
-
-        return extract_result(result)
+    return await _call_tool(
+        "search_restaurants",
+        {
+            "location": location,
+            "cuisine": cuisine,
+        },
+    )
 
 
 # ---------------------------------------------------------
@@ -100,19 +108,15 @@ async def check_availability(
     requested date, time and party size.
     """
 
-    async with get_mcp_session() as session:
-
-        result = await session.call_tool(
-            "check_availability",
-            {
-                "restaurant_id": restaurant_id,
-                "date": date,
-                "time": time,
-                "party_size": party_size,
-            },
-        )
-
-        return extract_result(result)
+    return await _call_tool(
+        "check_availability",
+        {
+            "restaurant_id": restaurant_id,
+            "date": date,
+            "time": time,
+            "party_size": party_size,
+        },
+    )
 
 
 # ---------------------------------------------------------
@@ -130,19 +134,15 @@ async def get_alternative_times(
     Find alternative reservation times for a restaurant.
     """
 
-    async with get_mcp_session() as session:
-
-        result = await session.call_tool(
-            "get_alternative_times",
-            {
-                "restaurant_id": restaurant_id,
-                "date": date,
-                "requested_time": requested_time,
-                "party_size": party_size,
-            },
-        )
-
-        return extract_result(result)
+    return await _call_tool(
+        "get_alternative_times",
+        {
+            "restaurant_id": restaurant_id,
+            "date": date,
+            "requested_time": requested_time,
+            "party_size": party_size,
+        },
+    )
 
 
 # ---------------------------------------------------------
@@ -164,19 +164,15 @@ async def create_reservation(
     Claude is not directly given this tool.
     """
 
-    async with get_mcp_session() as session:
-
-        result = await session.call_tool(
-            "create_reservation",
-            {
-                "restaurant_id": restaurant_id,
-                "date": date,
-                "time": time,
-                "party_size": party_size,
-            },
-        )
-
-        return extract_result(result)
+    return await _call_tool(
+        "create_reservation",
+        {
+            "restaurant_id": restaurant_id,
+            "date": date,
+            "time": time,
+            "party_size": party_size,
+        },
+    )
 
 
 # ---------------------------------------------------------
@@ -191,16 +187,12 @@ async def get_reservation(
     Retrieve an existing reservation.
     """
 
-    async with get_mcp_session() as session:
-
-        result = await session.call_tool(
-            "get_reservation",
-            {
-                "reservation_id": reservation_id,
-            },
-        )
-
-        return extract_result(result)
+    return await _call_tool(
+        "get_reservation",
+        {
+            "reservation_id": reservation_id,
+        },
+    )
 
 
 # ---------------------------------------------------------
@@ -218,19 +210,15 @@ async def modify_reservation(
     Modify an existing reservation.
     """
 
-    async with get_mcp_session() as session:
-
-        result = await session.call_tool(
-            "modify_reservation",
-            {
-                "reservation_id": reservation_id,
-                "date": date,
-                "time": time,
-                "party_size": party_size,
-            },
-        )
-
-        return extract_result(result)
+    return await _call_tool(
+        "modify_reservation",
+        {
+            "reservation_id": reservation_id,
+            "date": date,
+            "time": time,
+            "party_size": party_size,
+        },
+    )
 
 
 # ---------------------------------------------------------
@@ -245,13 +233,9 @@ async def cancel_reservation(
     Cancel an existing reservation.
     """
 
-    async with get_mcp_session() as session:
-
-        result = await session.call_tool(
-            "cancel_reservation",
-            {
-                "reservation_id": reservation_id,
-            },
-        )
-
-        return extract_result(result)
+    return await _call_tool(
+        "cancel_reservation",
+        {
+            "reservation_id": reservation_id,
+        },
+    )
