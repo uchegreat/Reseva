@@ -1,8 +1,13 @@
-name: CI
+name: CI/CD
 
 on:
   push:
     branches: [main]
+    # Documentation-only changes do not need a test run or a deployment.
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - ".env.example"
   pull_request:
   workflow_dispatch:
 
@@ -51,6 +56,56 @@ jobs:
           python -c "import agent.mcp_client; print('agent.mcp_client ok')"
           python -c "import api.main; print('api.main ok')"
 
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: reseva
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # A throwaway test database and placeholder keys. No real service is used.
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/reseva
+      ANTHROPIC_API_KEY: ci-placeholder
+      RESEND_API_KEY: ci-placeholder
+      RESEND_FROM_EMAIL: ci@example.com
+      RESEND_FROM_NAME: Reseva CI
+      RESEVA_IN_PROCESS: "1"
+      LANGSMITH_TRACING: "false"
+      # Skip the tests that need a real Claude key (see tests/conftest.py).
+      RESEVA_SKIP_LIVE_TESTS: "1"
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Create the tables and seed the restaurants
+        run: |
+          python -m database.init_db
+          python -m database.seed
+
+      - name: Run the tests
+        run: python -m pytest tests -q -p no:cacheprovider
+
   frontend:
     name: Frontend build
     runs-on: ubuntu-latest
@@ -74,3 +129,89 @@ jobs:
 
       - name: Type-check and build
         run: npm run build
+
+  deploy:
+    name: Deploy to LangSmith
+    needs: [backend, tests, frontend]
+    # Only deploy from main, never from pull requests.
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    # Secrets live in the "production" environment, which can require a manual
+    # approval before this job starts (Settings > Environments > production).
+    environment: production
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    env:
+      DEPLOYMENT_NAME: reseva
+      DEPLOYMENT_URL: https://reseva-ac385db28e395ffbba1179920844be59.us.langgraph.app
+      LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+      RESEND_FROM_EMAIL: ${{ secrets.RESEND_FROM_EMAIL }}
+      RESEND_FROM_NAME: ${{ secrets.RESEND_FROM_NAME }}
+    steps:
+      - name: Check that the required secrets exist
+        run: |
+          missing=0
+          for name in LANGSMITH_API_KEY ANTHROPIC_API_KEY DATABASE_URL RESEND_API_KEY RESEND_FROM_EMAIL; do
+            if [ -z "${!name}" ]; then
+              echo "::error::The secret $name is not set in the production environment."
+              missing=1
+            fi
+          done
+          exit $missing
+
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build the web app and put it in static_app
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+          cd ..
+          rm -rf static_app
+          cp -r frontend/dist static_app
+
+      - name: Write the production environment file
+        run: |
+          {
+            echo "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY"
+            echo "DATABASE_URL=$DATABASE_URL"
+            echo "RESEND_API_KEY=$RESEND_API_KEY"
+            echo "RESEND_FROM_EMAIL=$RESEND_FROM_EMAIL"
+            echo "RESEND_FROM_NAME=${RESEND_FROM_NAME:-Reseva}"
+            echo "LANGSMITH_TRACING=true"
+            echo "LANGSMITH_DEPLOYMENT_NAME=$DEPLOYMENT_NAME"
+            echo "RESEVA_IN_PROCESS=1"
+          } > .env.production
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install the LangGraph CLI
+        run: pip install --upgrade langgraph-cli
+
+      - name: Deploy (remote build)
+        run: langgraph deploy --name "$DEPLOYMENT_NAME" --remote
+
+      - name: Smoke test the live site
+        run: |
+          for path in /api/v1/health /app/; do
+            curl --fail --silent --show-error \
+              --retry 6 --retry-delay 15 --retry-all-errors \
+              --output /dev/null "$DEPLOYMENT_URL$path"
+            echo "$path is responding"
+          done
