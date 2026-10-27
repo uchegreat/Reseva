@@ -10,6 +10,7 @@
 ![FastAPI](https://img.shields.io/badge/FastAPI-API-009688?logo=fastapi&logoColor=white)
 ![React](https://img.shields.io/badge/React-Vite-61DAFB?logo=react&logoColor=black)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Neon-4169E1?logo=postgresql&logoColor=white)
+[![CI/CD](https://github.com/uchegreat/Reseva/actions/workflows/ci.yml/badge.svg)](https://github.com/uchegreat/Reseva/actions/workflows/ci.yml)
 
 **[Live demo](https://reseva-ac385db28e395ffbba1179920844be59.us.langgraph.app/app/)**
 
@@ -32,12 +33,13 @@
 11. [Configuration](#configuration)
 12. [Local development](#local-development)
 13. [Testing](#testing)
-14. [Deployment with the LangSmith CLI](#deployment-with-the-langsmith-cli)
-15. [Security and privacy](#security-and-privacy)
-16. [Troubleshooting](#troubleshooting)
-17. [Design decisions](#design-decisions)
-18. [Known limitations](#known-limitations)
-19. [Roadmap](#roadmap)
+14. [CI/CD pipeline](#cicd-pipeline)
+15. [Deployment with the LangSmith CLI](#deployment-with-the-langsmith-cli)
+16. [Security and privacy](#security-and-privacy)
+17. [Troubleshooting](#troubleshooting)
+18. [Design decisions](#design-decisions)
+19. [Known limitations](#known-limitations)
+20. [Roadmap](#roadmap)
 
 ## Overview
 
@@ -58,6 +60,7 @@ The agent is built with [LangGraph](https://langchain-ai.github.io/langgraph/) a
 - **Pausable conversations.** Conversation state is persisted by the deployment, so a chat can pause for approval and resume.
 - **Tracing.** Every run is traced in LangSmith.
 - **One deployment.** The agent, the API routes and the web app are served together from a single LangSmith Deployment.
+- **Automated pipeline.** GitHub Actions tests every change against a real PostgreSQL database, builds the web app, and deploys approved releases to LangSmith.
 
 ## Screenshots
 
@@ -252,9 +255,11 @@ reseva/
 ├── integrations/             Booking-provider interface and mock provider
 ├── frontend/                 React + Vite web app (source)
 ├── static_app/               Built web app served at /app/
-├── tests/                    Test suite
+├── tests/                    Test suite (conftest.py skips tests that need a real Claude key on CI)
 ├── langgraph.json            Deployment configuration
-├── requirements.txt          Python dependencies
+├── requirements.txt          Python dependencies (production)
+├── requirements-dev.txt      Extra packages for running the tests
+├── .github/workflows/ci.yml  CI/CD pipeline
 └── .env.example              Template for environment variables
 ```
 
@@ -351,17 +356,65 @@ npm run dev
 
 ## Testing
 
-Tests live in `tests/` and cover the extractor, repositories, graph flows, approvals, recovery and the API.
+Tests live in `tests/` and cover the extractor, repositories, graph flows, approvals, recovery and the API. Install the test dependencies first:
 
 ```bash
+pip install -r requirements-dev.txt
+```
+
+Run the whole suite, or one file:
+
+```bash
+python -m pytest tests -q
 python -m pytest tests/test_alternatives.py
 ```
 
 Notes:
 
 - Many tests use PostgreSQL and read `DATABASE_URL`. Point it at a test database, never at production.
+- **26 tests need a real Claude API key** (they run the agent, the extractor or the memory extractor), and two files create a Claude client when they are imported. `tests/conftest.py` skips them when `RESEVA_SKIP_LIVE_TESTS=1` is set, which is how CI runs. Without that variable, the whole suite runs. With placeholder keys and the variable set, the result is 42 passed and 26 skipped.
 - `tests/test_availability.py` and `tests/test_mcp_client.py` are small runnable scripts: `python -m tests.test_availability`.
-- The workflow in `.github/workflows/ci.yml` runs on every push. Many tests need a database and keys, so it may not pass without them.
+- The same tests run automatically on GitHub for every push and pull request (see [CI/CD pipeline](#cicd-pipeline)).
+
+## CI/CD pipeline
+
+Every push and pull request is checked by GitHub Actions, and approved pushes to `main` are deployed to LangSmith by the same workflow. It is defined in `.github/workflows/ci.yml`.
+
+![A passing CI/CD run: backend checks, tests and frontend build, then deploy to LangSmith](docs/images/ci-pipeline.png)
+
+### Jobs
+
+| Job | What it does | When it runs |
+| --- | --- | --- |
+| **Backend checks** | Installs `requirements.txt`, checks that every Python file compiles, and checks that `agent.graph`, `agent.advanced_graph`, `agent.mcp_client` and `api.main` import cleanly | Pushes and pull requests |
+| **Tests** | Starts a throwaway PostgreSQL 16 database, creates the tables, seeds the restaurants and runs the test suite with placeholder keys (see [Testing](#testing)) | Pushes and pull requests |
+| **Frontend build** | Runs `npm ci` and `npm run build`, which type-checks and bundles the React app | Pushes and pull requests |
+| **Deploy to LangSmith** | Rebuilds the web app, writes the production settings, runs `langgraph deploy`, then smoke-tests the live site | Pushes to `main` only, after the three jobs above pass |
+
+The workflow does not run for changes that only touch Markdown files, `docs/` or `.env.example`, so README edits never trigger a deployment. Pull requests run the checks but never deploy. The workflow can also be started by hand from the **Actions** tab.
+
+### How the deploy job works
+
+1. It stops immediately, naming the secret, if any required secret is missing.
+2. It builds the web app and copies it into `static_app/`, so the live page always matches the code.
+3. It writes `.env.production` from the repository's secrets. The file exists only on the temporary runner and is never committed.
+4. It runs `langgraph deploy --name reseva --remote`, which builds the Docker image remotely and creates a new revision of the deployment.
+5. It requests `/api/v1/health` and `/app/` on the live deployment, retrying while the new revision starts, and fails if either does not respond.
+
+The deploy job uses a GitHub **environment** named `production`. Its secrets are only available to that job, and the environment can require a reviewer's approval before each deployment starts.
+
+### Secrets
+
+Add these under **Settings → Environments → production → Environment secrets**:
+
+| Secret | Purpose |
+| --- | --- |
+| `LANGSMITH_API_KEY` | Lets the CLI deploy to LangSmith (use a dedicated key for GitHub) |
+| `ANTHROPIC_API_KEY` | Claude |
+| `DATABASE_URL` | Production PostgreSQL connection string |
+| `RESEND_API_KEY` | Sending email |
+| `RESEND_FROM_EMAIL` | Verified sender address |
+| `RESEND_FROM_NAME` | Optional sender display name (defaults to Reseva) |
 
 ## Deployment with the LangSmith CLI
 
@@ -407,6 +460,8 @@ You can force a mode with `--remote` or `--no-remote`.
 4. Set the deployment name, for example `LANGSMITH_DEPLOYMENT_NAME=reseva`.
 
 ### Releasing a new version
+
+Releases normally go through the [CI/CD pipeline](#cicd-pipeline): push to `main`, approve the deployment, and the workflow does the steps below. The manual route is equivalent and is useful for deploying from your own machine.
 
 1. Run the checks you need, for example the tests that do not need a database.
 2. Rebuild the frontend and copy it into `static_app/`:
@@ -468,6 +523,7 @@ The deployment is served from the default `*.langgraph.app` address. LangSmith's
 - **Spend protection.** A per-visitor rate limit (default 20 requests per minute) limits model usage. It is best effort: it identifies visitors by the forwarded address and resets on restart. Set a spending limit with your model provider as well.
 - **No login.** Anyone who knows a reservation ID can look up, change or cancel that reservation. Do not use real personal data in the demo.
 - **Writes are gated.** The agent cannot create, change or cancel a reservation without an explicit approval.
+- **Pipeline secrets.** Production keys are stored as GitHub environment secrets, written to a temporary file on the runner during a deployment, and never committed. Deployments can require a reviewer's approval, and pull requests cannot deploy.
 - **Email.** Confirmation emails go to the address typed into the email box.
 
 ## Troubleshooting
@@ -481,6 +537,9 @@ The deployment is served from the default `*.langgraph.app` address. LangSmith's
 | Clicking **Confirm** or **Cancel** on an email question has no useful effect | A yes or no is not an email address | The web app shows an email box for these questions, and `ResumeRequest.approval` accepts text |
 | The built page calls `127.0.0.1:8000` | `.env.local` was baked into the production build | Keep `frontend/.env.production` with an empty `VITE_API_BASE_URL` |
 | `/app/` loads blank or assets return 404 | Wrong base path or missing build | Keep `base: '/app/'` in `vite.config.ts` and copy `frontend/dist` to `static_app/` |
+| The **Deploy** job stops at "Check that the required secrets exist" | A secret is missing from the `production` environment | Add the named secret under **Settings → Environments → production** |
+| The **Tests** job fails with `No module named 'langgraph.checkpoint.postgres'` or `Unknown pytest.mark.asyncio` | Test-only packages are not installed | CI installs `requirements-dev.txt`; locally run `pip install -r requirements-dev.txt` |
+| Tests fail with `AnthropicAuthenticationError` | The test needs a real Claude key | Set `RESEVA_SKIP_LIVE_TESTS=1` to skip those tests, or provide a real `ANTHROPIC_API_KEY` |
 | `foreign key` error when booking | The restaurants table is empty | Run `python -m database.seed` against the production database |
 | SSL errors with Neon | Missing SSL option | End `DATABASE_URL` with `?sslmode=require` |
 | Environment values end with a stray character on Windows | Windows line endings in an env file read by a shell script | Strip carriage returns (`tr -d '\r'`) when reading values in Git Bash |
@@ -492,6 +551,7 @@ The deployment is served from the default `*.langgraph.app` address. LangSmith's
 - **In-process MCP.** The MCP server runs inside the agent process. An earlier version launched it as a subprocess, which failed on the hosted platform.
 - **One deployment.** Serving the API and the web app from the agent deployment keeps the API key off the browser, removes CORS, and means one thing to deploy.
 - **Plans stay internal.** The planning text guides the model but is hidden from the chat.
+- **Gated releases.** A deployment only starts after the tests and builds pass, and it can wait for a person's approval. Test-only dependencies live in `requirements-dev.txt`, so they never reach the production image.
 
 ## Known limitations
 
@@ -499,6 +559,7 @@ The deployment is served from the default `*.langgraph.app` address. LangSmith's
 - Long-term memory is implemented but switched off in production, because the web app does not yet identify individual users. The `users` table is empty and memory loading is skipped.
 - There is no login, so reservations are protected only by their ID.
 - The rate limit is in memory and best effort.
+- Tests that need a real Claude key (26 of them) are skipped on CI, so agent behaviour that depends on the model is checked locally, not by the pipeline.
 - Code review found one routing path where a stale invalid-email state could send a repeated booking request to the email step before the approval card. It has not been reproduced in testing, and starting a new chat avoids it.
 - The public address is the default LangSmith address.
 
@@ -507,5 +568,6 @@ The deployment is served from the default `*.langgraph.app` address. LangSmith's
 - Connect a real reservation provider through `integrations/`
 - User accounts and per-user memory
 - Custom domain
-- Tests that run without a database, and a CI workflow that passes without secrets
+- Run the Claude-dependent tests in CI, using a dedicated key with a spending limit or recorded responses
+- Require pull requests and passing checks on `main` (branch protection)
 - Tighten the invalid-email retry route so approval can never be skipped
