@@ -21,22 +21,23 @@
 
 1. [Overview](#overview)
 2. [Features](#features)
-3. [How a request flows through the system](#how-a-request-flows-through-the-system)
-4. [The agent in detail](#the-agent-in-detail)
-5. [MCP restaurant tools](#mcp-restaurant-tools)
-6. [Data model](#data-model)
-7. [API reference](#api-reference)
-8. [Frontend](#frontend)
-9. [Project structure](#project-structure)
-10. [Configuration](#configuration)
-11. [Local development](#local-development)
-12. [Testing](#testing)
-13. [Deployment with the LangSmith CLI](#deployment-with-the-langsmith-cli)
-14. [Security and privacy](#security-and-privacy)
-15. [Troubleshooting](#troubleshooting)
-16. [Design decisions](#design-decisions)
-17. [Known limitations](#known-limitations)
-18. [Roadmap](#roadmap)
+3. [Screenshots](#screenshots)
+4. [How a request flows through the system](#how-a-request-flows-through-the-system)
+5. [The agent in detail](#the-agent-in-detail)
+6. [MCP restaurant tools](#mcp-restaurant-tools)
+7. [Data model](#data-model)
+8. [API reference](#api-reference)
+9. [Frontend](#frontend)
+10. [Project structure](#project-structure)
+11. [Configuration](#configuration)
+12. [Local development](#local-development)
+13. [Testing](#testing)
+14. [Deployment with the LangSmith CLI](#deployment-with-the-langsmith-cli)
+15. [Security and privacy](#security-and-privacy)
+16. [Troubleshooting](#troubleshooting)
+17. [Design decisions](#design-decisions)
+18. [Known limitations](#known-limitations)
+19. [Roadmap](#roadmap)
 
 ## Overview
 
@@ -58,6 +59,18 @@ The agent is built with [LangGraph](https://langchain-ai.github.io/langgraph/) a
 - **Tracing.** Every run is traced in LangSmith.
 - **One deployment.** The agent, the API routes and the web app are served together from a single LangSmith Deployment.
 
+## Screenshots
+
+![Reseva home screen](docs/images/home.png)
+
+| Booking, then changing the time | Booking confirmation email |
+| --- | --- |
+| ![Booking and modification in the chat](docs/images/booking-and-modify.png) | ![Booking confirmation email](docs/images/booking-email.png) |
+
+| Modification email | Cancellation email |
+| --- | --- |
+| ![Modification email](docs/images/modification-email.png) | ![Cancellation email](docs/images/cancellation-email.png) |
+
 ## How a request flows through the system
 
 1. The person types a request in the web app (React).
@@ -74,6 +87,10 @@ The FastAPI routes are attached to the agent server through the `http.app` setti
 ### Outer graph (`agent/advanced_graph.py`)
 
 An outer graph wraps the core reservation graph and adds planning, memory and self-checking:
+
+![The agent graph in LangSmith Studio](docs/images/langgraph-studio-graph.png)
+
+*The outer graph in LangSmith Studio: memory and planning first, then the core agent, then evaluation, with an adapt loop.*
 
 | Step | What it does |
 | --- | --- |
@@ -349,6 +366,10 @@ Notes:
 ## Deployment with the LangSmith CLI
 
 Reseva is deployed as a single [LangSmith Deployment](https://docs.langchain.com/langsmith/deployment) using the `langgraph deploy` command from the LangGraph CLI. The result is a Docker image of the agent server, built from this project and run by LangSmith.
+
+![LangSmith deployment overview](docs/images/langsmith-deployment.png)
+
+*The `reseva` deployment in LangSmith, created and updated with `langgraph deploy`.*
 
 ### What `langgraph deploy` does
 
