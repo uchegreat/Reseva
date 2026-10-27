@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # Placeholder values so the code can be imported. Nothing here is a real
+      # credential and no external service is contacted by these checks.
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/reseva
+      ANTHROPIC_API_KEY: ci-placeholder
+      RESEND_API_KEY: ci-placeholder
+      RESEND_FROM_EMAIL: ci@example.com
+      RESEND_FROM_NAME: Reseva CI
+      RESEVA_IN_PROCESS: "1"
+      LANGSMITH_TRACING: "false"
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Check that every Python file compiles
+        run: python -m compileall -q agent api database integrations mcp_servers tests
+
+      - name: Check that the main modules import
+        run: |
+          python -c "import agent.graph; print('agent.graph ok')"
+          python -c "import agent.advanced_graph; print('agent.advanced_graph ok')"
+          python -c "import agent.mcp_client; print('agent.mcp_client ok')"
+          python -c "import api.main; print('api.main ok')"
+
+  frontend:
+    name: Frontend build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check and build
+        run: npm run build
