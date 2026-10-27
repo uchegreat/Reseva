@@ -1,0 +1,7 @@
+# Extra packages needed only to run the test suite (used by CI).
+# The production deployment installs requirements.txt, not this file.
+-r requirements.txt
+
+langgraph-checkpoint-postgres==3.1.2
+psycopg-pool==3.3.2
+pytest-asyncio==1.4.0
