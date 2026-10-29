@@ -74,6 +74,10 @@ The agent is built with [LangGraph](https://langchain-ai.github.io/langgraph/) a
 | --- | --- |
 | ![Modification email](docs/images/modification-email.png) | ![Cancellation email](docs/images/cancellation-email.png) |
 
+**Demo video** (about 1 minute): search, book with approval, confirmation email, then change and cancel.
+
+https://github.com/user-attachments/assets/64e9962a-fe5e-4e51-a4aa-2e9ea8a979ce
+
 ## How a request flows through the system
 
 1. The person types a request in the web app (React).
